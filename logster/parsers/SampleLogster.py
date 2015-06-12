@@ -39,10 +39,11 @@ class SampleLogster(LogsterParser):
         self.http_3xx = 0
         self.http_4xx = 0
         self.http_5xx = 0
+        self.req_times = []
         
         # Regular expression for matching lines we are interested in, and capturing
         # fields from the line (in this case, http_status_code).
-        self.reg = re.compile('.*HTTP/1.\d\" (?P<http_status_code>\d{3}) .*')
+        self.reg = re.compile('.*HTTP/1.\d\" (?P<http_status_code>\d{3}) .* (?P<req_time>\d+\.\d+)?\s+$')
 
 
     def parse_line(self, line):
@@ -56,6 +57,9 @@ class SampleLogster(LogsterParser):
             if regMatch:
                 linebits = regMatch.groupdict()
                 status = int(linebits['http_status_code'])
+                if linebits.get('req_time', None):
+                    req_time = float(linebits['req_time'])
+                    self.req_times.append(req_time)
 
                 if (status < 200):
                     self.http_1xx += 1
@@ -79,12 +83,26 @@ class SampleLogster(LogsterParser):
         '''Run any necessary calculations on the data collected from the logs
         and return a list of metric objects.'''
         self.duration = float(duration)
-
-        # Return a list of metrics objects
-        return [
+        
+        metrics = [
             MetricObject("http_1xx", (self.http_1xx / self.duration), "Responses per sec"),
             MetricObject("http_2xx", (self.http_2xx / self.duration), "Responses per sec"),
             MetricObject("http_3xx", (self.http_3xx / self.duration), "Responses per sec"),
             MetricObject("http_4xx", (self.http_4xx / self.duration), "Responses per sec"),
             MetricObject("http_5xx", (self.http_5xx / self.duration), "Responses per sec"),
         ]
+
+        total_req_time = 0.0
+        n_reqs = 0
+
+        while len(self.req_times) > 0:
+            n_reqs += 1
+            req_time = self.req_times.pop()
+            metrics.append(MetricObject("req_time", req_time, "Request duration sec"))
+            total_req_time += req_time
+
+        avg_req_time = total_req_time / n_reqs if n_reqs > 0 else 0.0
+        metrics.append(MetricObject("avg_req_time", avg_req_time, "Avg request duration in sec"))
+
+        # Return a list of metrics objects
+        return metrics
